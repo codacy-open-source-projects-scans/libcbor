@@ -29,7 +29,7 @@ Building & installing libcbor
 
 Prerequisites:
  - C99 compiler
- - CMake_ 2.8 or newer (might also be called ``cmakesetup``, ``cmake-gui`` or ``ccmake`` depending on the installed version and system)
+ - CMake_ 3.5 or newer (might also be called ``cmakesetup``, ``cmake-gui`` or ``ccmake`` depending on the installed version and system)
  - C build system CMake can target (make, Apple Xcode, MinGW, ...)
 
 .. _CMake: http://cmake.org/
@@ -105,9 +105,8 @@ If you want to pass other custom configuration options, please refer to `<http:/
 .. note::
     When ``CMAKE_INTERPROCEDURAL_OPTIMIZATION`` is enabled, the generated static library (`libcbor.a`) should be used with an LTO-enabled linker downstream. On LLVM toolchains without bitcode embedding (`-fembed-bitcode`), the archive will contain LLVM IR only and linking without LTO  `will not work <https://github.com/PJK/libcbor/issues/372>`_. 
 
-.. warning::
-    ``CBOR_CUSTOM_ALLOC`` has been `removed <https://github.com/PJK/libcbor/pull/237>`_. 
-    Custom allocators (historically a controlled by a build flag) are always enabled.
+.. note::
+    Custom allocators are always enabled. The ``CBOR_CUSTOM_ALLOC`` build flag was `removed in 0.10.0 <https://github.com/PJK/libcbor/pull/237>`_.
 
 **Building using make**
 
@@ -154,7 +153,7 @@ libcbor is known to successfully work on ARM Android devices. Cross-compilation 
 Linking with libcbor
 ---------------------
 
-If you include and linker paths include the directories to which libcbor has been installed, compiling programs that uses libcbor requires
+If your include and linker paths include the directories to which libcbor has been installed, compiling programs that uses libcbor requires
 no extra considerations.
 
 You can verify that everything has been set up properly by creating a file with the following contents
@@ -208,7 +207,7 @@ location by checking the installation log. If you used make, it will look someth
     -- Installing: /usr/local/include/cbor/encoding.h
     ...
 
-Make sure that ``CMAKE_INSTALL_PREFIX`` (if you provided it) was correct. Including the path path during compilation should suffice, e.g.:
+Make sure that ``CMAKE_INSTALL_PREFIX`` (if you provided it) was correct. Including the path during compilation should suffice, e.g.:
 
 .. code-block:: bash
 

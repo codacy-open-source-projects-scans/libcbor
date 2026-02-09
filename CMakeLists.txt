@@ -1,16 +1,10 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(libcbor LANGUAGES C CXX)
+project(libcbor VERSION 0.13.0 LANGUAGES C CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH}
   "${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/")
 include(CTest)
 include(GNUInstallDirs) # Provides CMAKE_INSTALL_ variables
-
-set(CBOR_VERSION_MAJOR "0")
-set(CBOR_VERSION_MINOR "13")
-set(CBOR_VERSION_PATCH "0")
-set(CBOR_VERSION
-  ${CBOR_VERSION_MAJOR}.${CBOR_VERSION_MINOR}.${CBOR_VERSION_PATCH})
 
 option(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY
   "cmake --build --target install does not depend on cmake --build" true)
@@ -20,19 +14,6 @@ include(CheckIncludeFiles)
 
 include(TestBigEndian)
 test_big_endian(BIG_ENDIAN)
-if(BIG_ENDIAN)
-  add_definitions(-DIS_BIG_ENDIAN)
-endif()
-
-option(CBOR_CUSTOM_ALLOC "Custom, dynamically defined allocator support" OFF)
-if(CBOR_CUSTOM_ALLOC)
-  message(
-    WARNING
-    "CBOR_CUSTOM_ALLOC has been deprecated. \
-      Custom allocators are now enabled by default. \
-      The flag is a no-op and will be removed in the next version. \
-      Please remove CBOR_CUSTOM_ALLOC from your build configuration.")
-endif()
 
 option(CBOR_PRETTY_PRINTER "Include a pretty-printing routine" ON)
 set(CBOR_BUFFER_GROWTH
@@ -43,39 +24,32 @@ set(CBOR_MAX_STACK_SIZE
   CACHE STRING "maximum size for decoding context stack")
 
 option(WITH_TESTS "[TEST] Build unit tests (requires CMocka)" OFF)
-if(WITH_TESTS)
-  add_definitions(-DWITH_TESTS)
-endif()
 
 option(WITH_EXAMPLES "Build examples" ON)
 
 option(HUGE_FUZZ "[TEST] Fuzz through 8GB of data in the test.\
        Do not use with memory instrumentation!"  OFF)
-if(HUGE_FUZZ)
-  add_definitions(-DHUGE_FUZZ)
-endif()
 
 option(SANE_MALLOC
   "[TEST] Assume that malloc will not allocate multi-GB blocks.\
        Tests only, platform specific"  OFF)
-if(SANE_MALLOC)
-  add_definitions(-DSANE_MALLOC)
-endif()
 
 option(PRINT_FUZZ "[TEST] Print the fuzzer input" OFF)
-if(PRINT_FUZZ)
-  add_definitions(-DPRINT_FUZZ)
-endif()
 
 option(SANITIZE "Enable ASan & a few compatible sanitizers in Debug mode" ON)
 
 set(CPACK_GENERATOR "DEB" "TGZ" "RPM")
-set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+find_program(DPKG_CMD dpkg)
+if(DPKG_CMD)
+  execute_process(COMMAND ${DPKG_CMD} --print-architecture
+    OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+endif()
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Pavel Kalvoda")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6")
-set(CPACK_PACKAGE_VERSION_MAJOR ${CBOR_VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${CBOR_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${CBOR_VERSION_PATCH})
+set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 
 include(CPack)
 
@@ -93,7 +67,6 @@ check_c_source_compiles("
 
 if(HAS_NODISCARD_ATTRIBUTE)
   message(STATUS "[[nodiscard]] is supported.")
-  add_definitions(-D_CBOR_HAS_NODISCARD_ATTRIBUTE)
   # Assume that if we have [[nodiscard]], we have some C23 support. May fail.
   if(NOT DEFINED CMAKE_C_STANDARD)
     message(STATUS "Switching to C23-like mode. To prevent this, pass -DCMAKE_C_STANDARD explicitly.")
@@ -110,7 +83,6 @@ elseif(NOT MSVC)
   if(NOT DEFINED CMAKE_C_STANDARD)
     set(CMAKE_C_STANDARD 99 CACHE STRING "C language standard")
   endif()
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pedantic")
 endif()
 
 # CMAKE_C_STANDARD set above
@@ -121,17 +93,11 @@ if(MSVC)
   # This just doesn't work right --
   # https://msdn.microsoft.com/en-us/library/5ft82fed.aspx
   set(CBOR_RESTRICT_SPECIFIER "")
-  # Safe stdio is only available in C11
-  add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-
-  set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /sdl")
 else()
   set(CBOR_RESTRICT_SPECIFIER "restrict")
 
-  set(CMAKE_C_FLAGS_DEBUG
-    "${CMAKE_C_FLAGS_DEBUG} -O0 -Wall -Wextra -g -ggdb -DDEBUG=true")
-  set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -Wall -Wextra -DNDEBUG")
-
+  # Sanitizer flags must stay in CMAKE_C_FLAGS because they need to be passed
+  # to both the compiler and linker, and target_link_options requires CMake 3.13
   if(SANITIZE)
     set(CMAKE_C_FLAGS_DEBUG
       "${CMAKE_C_FLAGS_DEBUG} \
@@ -140,6 +106,27 @@ else()
   endif()
 
   set(CMAKE_EXE_LINKER_FLAGS_DEBUG "-g")
+endif()
+
+add_library(cbor_project_options INTERFACE)
+
+if(MINGW)
+  target_compile_options(cbor_project_options INTERFACE -std=gnu99)
+elseif(NOT MSVC)
+  target_compile_options(cbor_project_options INTERFACE -pedantic)
+endif()
+
+if(MSVC)
+  target_compile_options(cbor_project_options INTERFACE
+    $<$<CONFIG:Debug>:/sdl>)
+  target_compile_definitions(cbor_project_options INTERFACE
+    _CRT_SECURE_NO_WARNINGS)
+else()
+  target_compile_options(cbor_project_options INTERFACE
+    $<$<CONFIG:Debug>:-O0 -Wall -Wextra -g -ggdb>
+    $<$<CONFIG:Release>:-O3 -Wall -Wextra>)
+  target_compile_definitions(cbor_project_options INTERFACE
+    $<$<CONFIG:Debug>:DEBUG=true>)
 endif()
 
 include(CheckTypeSize)
@@ -152,7 +139,7 @@ if(SIZEOF_SIZE_T LESS 8)
       will always fail. Consider implementing a custom streaming \
       decoder if you need to deal with huge items.")
 else()
-  add_definitions(-DEIGHT_BYTE_SIZE_T)
+  set(HAVE_EIGHT_BYTE_SIZE_T TRUE)
 endif()
 
 check_c_source_compiles("
@@ -162,31 +149,26 @@ check_c_source_compiles("
     }
 "  HAS_BUILTIN_UNREACHABLE)
 
-if(HAS_BUILTIN_UNREACHABLE)
-  add_definitions(-D_CBOR_HAS_BUILTIN_UNREACHABLE)
-endif()
-
 # CMake >= 3.9.0 enables LTO for GCC and Clang with INTERPROCEDURAL_OPTIMIZATION
 # Policy CMP0069 enables this behavior when we set the minimum CMake version <
 # 3.9.0 Checking for LTO support before setting INTERPROCEDURAL_OPTIMIZATION is
 # mandatory with CMP0069 set to NEW.
 set(LTO_SUPPORTED FALSE)
-if(${CMAKE_VERSION} VERSION_GREATER "3.9.0" OR ${CMAKE_VERSION} VERSION_EQUAL
-  "3.9.0")
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.9.0")
   cmake_policy(SET CMP0069 NEW)
   # Require LTO support to build libcbor with newer CMake versions
   include(CheckIPOSupported)
   check_ipo_supported(RESULT LTO_SUPPORTED)
 endif()
 
-if(NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)
-  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+if(LTO_SUPPORTED AND NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE)
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 endif()
 
 if(LTO_SUPPORTED)
   message(
     STATUS
-    "LTO is supported and CMAKE_INTERPROCEDURAL_OPTIMIZATION=${CMAKE_INTERPROCEDURAL_OPTIMIZATION}"
+    "LTO is supported and CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE=${CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE}"
   )
 else()
   message(STATUS "LTO is not supported")
@@ -219,7 +201,7 @@ if(COVERAGE)
 
   add_custom_target(
     llvm-coverage
-    COMMAND make -j 16
+    COMMAND cmake --build . --parallel
     COMMAND rm -rf coverage_profiles
     COMMAND mkdir coverage_profiles
     COMMAND
@@ -267,8 +249,6 @@ endif()
 # Configure build and targets
 #
 
-include_directories(src)
-
 # We want to generate configuration.h from the template and make it so that it
 # is accessible using the same path during both library build and installed
 # header use, without littering the source dir.
@@ -278,20 +258,11 @@ install(FILES ${PROJECT_BINARY_DIR}/cbor/configuration.h
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/cbor)
 
 add_subdirectory(src)
-if(LTO_SUPPORTED)
-  set_property(DIRECTORY src PROPERTY INTERPROCEDURAL_OPTIMIZATION CMAKE_INTERPROCEDURAL_OPTIMIZATION)
-endif()
 
 if(WITH_TESTS)
   add_subdirectory(test)
-  if(LTO_SUPPORTED)
-    set_property(DIRECTORY test PROPERTY INTERPROCEDURAL_OPTIMIZATION CMAKE_INTERPROCEDURAL_OPTIMIZATION)
-  endif()
 endif()
 
 if(WITH_EXAMPLES)
   add_subdirectory(examples)
-  if(LTO_SUPPORTED)
-    set_property(DIRECTORY examples PROPERTY INTERPROCEDURAL_OPTIMIZATION CMAKE_INTERPROCEDURAL_OPTIMIZATION)
-  endif()
 endif()

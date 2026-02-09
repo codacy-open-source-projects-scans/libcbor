@@ -22,6 +22,9 @@ cbor_item_t* cbor_new_tag(uint64_t value) {
 
 cbor_item_t* cbor_tag_item(const cbor_item_t* tag) {
   CBOR_ASSERT(cbor_isa_tag(tag));
+  if (tag->metadata.tag_metadata.tagged_item == NULL) {
+    return NULL;
+  }
   return cbor_incref(tag->metadata.tag_metadata.tagged_item);
 }
 
@@ -32,6 +35,9 @@ uint64_t cbor_tag_value(const cbor_item_t* tag) {
 
 void cbor_tag_set_item(cbor_item_t* tag, cbor_item_t* tagged_item) {
   CBOR_ASSERT(cbor_isa_tag(tag));
+  if (tag->metadata.tag_metadata.tagged_item != NULL) {
+    cbor_intermediate_decref(tag->metadata.tag_metadata.tagged_item);
+  }
   cbor_incref(tagged_item);
   tag->metadata.tag_metadata.tagged_item = tagged_item;
 }

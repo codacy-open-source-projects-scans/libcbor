@@ -33,10 +33,11 @@ _CBOR_NODISCARD CBOR_EXPORT cbor_item_t* cbor_new_tag(uint64_t value);
 /** Get the tagged item (what the tag points to).
  *
  * @param tag A #CBOR_TYPE_TAG tag.
- * @return Reference to the tagged item.
+ * @return Reference to the tagged item, which may be `NULL` if no item has
+ * been set yet.
  *
- * Increases the reference count of the underlying item. The returned reference
- * must be released using #cbor_decref.
+ * If non-NULL, increases the reference count of the underlying item. The
+ * returned reference must be released using #cbor_decref.
  */
 _CBOR_NODISCARD CBOR_EXPORT cbor_item_t* cbor_tag_item(const cbor_item_t* tag);
 
@@ -53,9 +54,8 @@ _CBOR_NODISCARD CBOR_EXPORT uint64_t cbor_tag_value(const cbor_item_t* tag);
  * @param tagged_item The item to tag. Its reference count will be increased
  * by one.
  *
- * If the tag already points to an item, the pointer will be replaced, without a
- * reference count change on the previous item.
- * TODO: Should we release the reference automatically?
+ * If the tag already points to an item, the previous item's reference count
+ * will be decreased by one.
  */
 CBOR_EXPORT void cbor_tag_set_item(cbor_item_t* tag, cbor_item_t* tagged_item);
 

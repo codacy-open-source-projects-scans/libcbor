@@ -51,7 +51,7 @@ Combining these two principles in practice turns out to be quite difficult. Inde
 
 Coding style
 -------------
-This code loosely follows the `Linux kernel coding style <https://www.kernel.org/doc/Documentation/CodingStyle>`_. Tabs are tabs, and they are 4 characters wide.
+This code uses a Google-based clang-format style with 2-space indentation and an 80-column limit. Run ``bash clang-format.sh`` before committing.
 
 
 Memory layout
@@ -112,7 +112,7 @@ Generally speaking, data items consist of three parts:
 
     .. member:: struct _cbor_int_metadata int_metadata
 
-        Used both by both :doc:`api/type_0_1_integers`
+        Used by both :doc:`api/type_0_1_integers`
 
     .. member:: struct _cbor_bytestring_metadata bytestring_metadata
     .. member:: struct _cbor_string_metadata string_metadata
@@ -124,5 +124,5 @@ Generally speaking, data items consist of three parts:
 Decoding
 ---------
 
-As outlined in :doc:`api`, there decoding is based on the streaming decoder Essentially, the decoder is a custom set of callbacks for the streaming decoder.
+As outlined in :doc:`api`, the decoding is based on the streaming decoder. Essentially, the decoder is a custom set of callbacks for the streaming decoder.
 

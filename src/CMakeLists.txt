@@ -29,6 +29,32 @@ if(NOT DEFINED CMAKE_MACOSX_RPATH)
 endif()
 
 add_library(cbor ${SOURCES})
+
+target_compile_definitions(cbor
+  PRIVATE
+    $<$<BOOL:${BIG_ENDIAN}>:IS_BIG_ENDIAN>
+    $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>
+  PUBLIC
+    $<$<BOOL:${HAS_NODISCARD_ATTRIBUTE}>:CBOR_HAS_NODISCARD_ATTRIBUTE>
+    $<$<BOOL:${HAS_BUILTIN_UNREACHABLE}>:CBOR_HAS_BUILTIN_UNREACHABLE>)
+
+# Compile options set directly (not via cbor_project_options INTERFACE library)
+# because the cbor target is exported and PRIVATE INTERFACE library deps cause
+# install(EXPORT ...) errors in CMake < 3.15.
+if(MINGW)
+  target_compile_options(cbor PRIVATE -std=gnu99)
+elseif(NOT MSVC)
+  target_compile_options(cbor PRIVATE -pedantic)
+endif()
+if(MSVC)
+  target_compile_options(cbor PRIVATE $<$<CONFIG:Debug>:/sdl>)
+else()
+  target_compile_options(cbor PRIVATE
+    $<$<CONFIG:Debug>:-O0 -Wall -Wextra -g -ggdb>
+    $<$<CONFIG:Release>:-O3 -Wall -Wextra>)
+  target_compile_definitions(cbor PRIVATE $<$<CONFIG:Debug>:DEBUG=true>)
+endif()
+
 target_include_directories(cbor PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
@@ -50,7 +76,7 @@ generate_export_header(cbor EXPORT_FILE_NAME
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/cbor/cbor_export.h
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/cbor)
 
-if(NOT ${CBOR_VERSION_MAJOR} EQUAL 0)
+if(NOT ${PROJECT_VERSION_MAJOR} EQUAL 0)
   message(
     FATAL_ERROR
       "Change the shared library version scheme to reflect https://github.com/PJK/libcbor/issues/52."
@@ -59,10 +85,10 @@ endif()
 
 set_target_properties(
   cbor
-  PROPERTIES VERSION ${CBOR_VERSION}
+  PROPERTIES VERSION ${PROJECT_VERSION}
              MACHO_COMPATIBILITY_VERSION
-             ${CBOR_VERSION_MAJOR}.${CBOR_VERSION_MINOR}.0
-             SOVERSION ${CBOR_VERSION_MAJOR}.${CBOR_VERSION_MINOR})
+             ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.0
+             SOVERSION ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR})
 
 join_paths(libdir_for_pc_file "\${prefix}" "${CMAKE_INSTALL_LIBDIR}")
 join_paths(includedir_for_pc_file "\${prefix}" "${CMAKE_INSTALL_INCLUDEDIR}")
@@ -94,7 +120,7 @@ configure_package_config_file(
   PATH_VARS CMAKE_INSTALL_INCLUDEDIR)
 write_basic_package_version_file(
   ${CMAKE_CURRENT_BINARY_DIR}/libcborConfigVersion.cmake
-  VERSION ${CBOR_VERSION}
+  VERSION ${PROJECT_VERSION}
   COMPATIBILITY SameMajorVersion)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libcborConfig.cmake
               ${CMAKE_CURRENT_BINARY_DIR}/libcborConfigVersion.cmake

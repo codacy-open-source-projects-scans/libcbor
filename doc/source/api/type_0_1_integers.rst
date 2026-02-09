@@ -24,7 +24,7 @@ Number of allocations               One per lifetime
 Storage requirements                ``sizeof(cbor_item_t) + sizeof(uint*_t)``
 ==================================  =========================================
 
-**Note:** once a positive integer has been created, its width *cannot* be changed.
+**Note:** once a negative integer has been created, its width *cannot* be changed.
 
 Type 0 & 1
 -------------
@@ -44,7 +44,7 @@ An integer item is created with one of the four widths. Because integers' `stora
 
         cbor_item_t * item = cbor_new_int8();
         cbor_mark_negint(item);
-        cbor_set_uint8(0);
+        cbor_set_uint8(item, 0);
 
     will produce an item with the logical value of :math:`-1`. There is, however, an upside to this as well: There is only one representation of zero.
 
@@ -55,10 +55,15 @@ Building new items
 .. doxygenfunction:: cbor_build_uint16
 .. doxygenfunction:: cbor_build_uint32
 .. doxygenfunction:: cbor_build_uint64
+.. doxygenfunction:: cbor_build_negint8
+.. doxygenfunction:: cbor_build_negint16
+.. doxygenfunction:: cbor_build_negint32
+.. doxygenfunction:: cbor_build_negint64
 
 
 Retrieving values
 ------------------------
+.. doxygenfunction:: cbor_get_int
 .. doxygenfunction:: cbor_get_uint8
 .. doxygenfunction:: cbor_get_uint16
 .. doxygenfunction:: cbor_get_uint32
