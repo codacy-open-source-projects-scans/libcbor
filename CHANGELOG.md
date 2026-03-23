@@ -19,6 +19,19 @@ Next
 - [Modernize CMake build: use `project(VERSION ...)`, replace `add_definitions()` with target-scoped `target_compile_definitions()`, remove redundant `include_directories()`](https://github.com/PJK/libcbor/pull/402)
 - [Replace global `CMAKE_C_FLAGS` mutations with target-scoped `target_compile_options()` via an INTERFACE library, and simplify LTO configuration](https://github.com/PJK/libcbor/pull/403)
 - [Fix Windows CI: propagate `_CRT_SECURE_NO_WARNINGS` to examples/tests, restrict LTO to Release builds, parallelize Windows CI build](https://github.com/PJK/libcbor/pull/404)
+- [Add `cbor_map_get` for key-based map lookup with a caller-supplied equality function](https://github.com/PJK/libcbor/pull/409)
+  - Signature: `cbor_map_get(map, key, eq)` — pass any equality predicate, e.g. `cbor_structurally_equal`
+  - Parameterised equality allows type-specific comparators or custom data-model semantics without library changes
+  - See also: #96
+- [Add `cbor_structurally_equal` for encoding-level item comparison](https://github.com/PJK/libcbor/pull/408)
+  - Compares two items structurally: encoding width, definite-vs-indefinite length, chunk boundaries, and map entry order all count
+  - Runs in O(n) time in the encoded byte size with no additional allocations
+  - See also: #96
+- BREAKING: [Fix NaN encoding in `cbor_encode_half` to preserve sign and payload bits](https://github.com/PJK/libcbor/pull/412)
+  - Previously, all NaN values were encoded as `0x7E00` (positive quiet NaN, zero payload). Now the sign bit and the top 10 mantissa bits are preserved in the half-precision encoding.
+  - `_cbor_decode_half` now reconstructs the NaN bit pattern faithfully, enabling encode/decode round-trips. Previously it always returned the C `NAN` constant.
+  - Very small normal floats that previously rounded to `+0` now round to `±0` depending on their sign.
+  - Clients that relied on all NaNs normalising to `0x7E00` will see different output. See #215.
 
 0.13.0 (2025-08-30)
 ---------------------
