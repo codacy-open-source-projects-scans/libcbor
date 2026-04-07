@@ -37,7 +37,7 @@ grep PROJECT_NUMBER Doxyfile
 prompt "Is the Doxyfile version correct?"
 
 echo ">>>>> Checking CMakeLists"
-grep -A 2 'set(CBOR_VERSION_MAJOR' CMakeLists.txt
+grep 'project(libcbor VERSION' CMakeLists.txt
 prompt "Is the CMake version correct?"
 
 echo ">>>>> Checking Bazel build"
@@ -90,6 +90,4 @@ echo "Release ready in $OUTDIR"
 echo "Add the release to GitHub at https://github.com/PJK/libcbor/releases/new *now*"
 prompt "Have you added the release to https://github.com/PJK/libcbor/releases/tag/$TAG_NAME?"
 
-echo "Update the Hombrew formula (https://github.com/Homebrew/homebrew-core/blob/master/Formula/libcbor.rb) *now*"
-echo "HOWTO: https://github.com/Linuxbrew/brew/blob/master/docs/How-To-Open-a-Homebrew-Pull-Request.md"
-prompt "Have you updated the formula?"
+echo "The Homebrew formula is updated automatically from the new tag."
