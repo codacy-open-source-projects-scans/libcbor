@@ -177,6 +177,15 @@ size_t cbor_encode_half(float value, unsigned char* buffer,
             ((uint16_t)(1u << (24u + logical_exp)) +
              (uint16_t)(((mant >> (-logical_exp - 2)) + 1) >>
                         1));  // Round half away from zero for simplicity
+    } else if (logical_exp > 15) {
+      /* Too large to represent as a half-precision number (the largest
+       * finite half is 65504). Without this check, the exponent bits below
+       * would overflow past the 5-bit exponent field and corrupt the sign
+       * and mantissa bits, silently producing an unrelated finite value or
+       * a NaN instead of a correctly rounded result. Saturate to signed
+       * infinity instead, which is what other half-precision converters do
+       * for out-of-range finite inputs. */
+      res = (uint16_t)((val & 0x80000000u) >> 16u | 0x7C00u);
     } else {
       res = (uint16_t)((val & 0x80000000u) >> 16u |
                        ((((uint8_t)logical_exp) + 15u) << 10u) |
@@ -188,13 +197,10 @@ size_t cbor_encode_half(float value, unsigned char* buffer,
 
 size_t cbor_encode_single(float value, unsigned char* buffer,
                           size_t buffer_size) {
-  // Note: Values of signaling NaNs are discarded. There is no standard
-  // way to extract it without assumptions about the internal float
-  // representation.
-  if (isnan(value)) {
-    return _cbor_encode_uint32((uint32_t)0x7FC0 << 16, buffer, buffer_size,
-                               0xE0);
-  }
+  // The bit pattern is copied verbatim, so NaN sign and payload bits are
+  // preserved. Signaling NaN payloads are preserved on a best-effort basis;
+  // some CPUs canonicalize them to quiet NaNs when loaded into registers.
+  // See https://github.com/PJK/libcbor/issues/215
   // TODO: Broken on systems that do not use IEEE 754
   return _cbor_encode_uint32(
       ((union _cbor_float_helper){.as_float = value}).as_uint, buffer,
@@ -203,11 +209,7 @@ size_t cbor_encode_single(float value, unsigned char* buffer,
 
 size_t cbor_encode_double(double value, unsigned char* buffer,
                           size_t buffer_size) {
-  // Note: Values of signaling NaNs are discarded. See `cbor_encode_single`.
-  if (isnan(value)) {
-    return _cbor_encode_uint64((uint64_t)0x7FF8 << 48, buffer, buffer_size,
-                               0xE0);
-  }
+  // See `cbor_encode_single` regarding NaNs
   // TODO: Broken on systems that do not use IEEE 754
   return _cbor_encode_uint64(
       ((union _cbor_double_helper){.as_double = value}).as_uint, buffer,

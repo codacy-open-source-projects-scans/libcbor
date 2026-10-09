@@ -5,6 +5,26 @@ Template:
 Next
 ---------------------
 
+- [Replay fuzz test inputs with allocation failures](https://github.com/PJK/libcbor/pull/438) (by [Alb3e3](https://github.com/Alb3e3)), checking decoder error reporting and cleanup for every `malloc` and `realloc` failure ([#86](https://github.com/PJK/libcbor/issues/86))
+- BREAKING: [`cbor_encode_single` and `cbor_encode_double` now preserve NaN sign and payload bits](https://github.com/PJK/libcbor/pull/447)
+  - Previously, every NaN was encoded as the canonical quiet NaN (`0x7FC00000` / `0x7FF8000000000000`), discarding the sign and payload. The bit pattern is now copied verbatim, matching `cbor_encode_half` since 0.14.0 ([#412](https://github.com/PJK/libcbor/pull/412)) and making decode/encode round trips of NaNs lossless at all three widths
+  - As with half-floats, signaling NaN payloads are preserved on a best-effort basis: some CPUs (x87) set the quiet bit when the value passes through a register
+  - Clients that relied on NaNs normalizing to the canonical encoding will see different output
+- [Run the CBOR Working Group test vectors as part of the test suite](https://github.com/PJK/libcbor/pull/446)
+  - The `.cbor` containers from <https://github.com/cbor-wg/cbor-test-vectors> (BSD-2-Clause) are vendored in `test/data/cbor-test-vectors`; 1381 vectors, of which 3 known deviations (validity checks) are listed as expected failures in `test/cbor_test_vectors_test.c`, plus 12 signaling NaNs whose payload survives the round trip only on FPUs that do not quiet them
+- BREAKING: [Decoders now accept all well-formed simple values](https://github.com/PJK/libcbor/pull/445)
+  - Previously, `cbor_load` and `cbor_stream_decode` rejected the unassigned simple values 0 to 19 (`0xE0` to `0xF3`) and 32 to 255 (`0xF8 0x20` to `0xF8 0xFF`) with `CBOR_ERR_MALFORMATED` / `CBOR_DECODER_ERROR`, even though RFC 8949 Section 3.3 defines them as well-formed and `cbor_build_ctrl` could already produce them. They are now decoded into ctrl items readable through `cbor_ctrl_value`. `0xF8` followed by a byte below `0x20` remains a well-formedness error as specified
+  - New `simple_value` member appended to `struct cbor_callbacks` and a matching `cbor_null_simple_value_callback` no-op. Like all other members, it must be set: existing callback sets that do not initialize it (e.g. designated initializers that predate the member) will dereference `NULL` on such input. Use `cbor_null_simple_value_callback` to ignore these values, or start from `cbor_empty_callbacks`
+  - Discovered by running the [CBOR Working Group test vectors](https://github.com/cbor-wg/cbor-test-vectors) (`rfc8949-appendixA/mt7-simple`)
+- BREAKING: [Do not allocate zero-byte buffers for empty items, fixing creation and decoding failures on platforms and custom allocators where `malloc(0)` returns `NULL`](https://github.com/PJK/libcbor/pull/437) (by [afonsojanu](https://github.com/afonsojanu), reported by [hglee](https://github.com/hglee) in [#427](https://github.com/PJK/libcbor/issues/427))
+  - Affected `cbor_new_definite_array(0)`, `cbor_new_definite_map(0)`, `cbor_build_bytestring(_, 0)`, `cbor_build_string("")`, `cbor_build_stringn(_, 0)`, `cbor_copy_definite` of indefinite strings with no data, and `cbor_load`/`cbor_stream_decode` (via the builder) for any input containing an empty string, bytestring, array, or map
+  - `cbor_array_handle`, `cbor_map_handle`, `cbor_bytestring_handle`, and `cbor_string_handle` now return `NULL` for empty definite items on all platforms (previously an implementation-defined `malloc(0)` result, non-`NULL` on glibc/macOS). The pointer was never valid to dereference; code that asserted it was non-`NULL` or passed it to `memcpy` & co. with a zero length must be adjusted
+  - Custom `free` implementations installed via `cbor_set_allocs` must accept `NULL` (as the standard `free` does); it is now passed for every empty item that is deallocated
+- [Fix `cbor_encode_half` producing corrupted output for values outside the half-precision range](https://github.com/PJK/libcbor/pull/439) (by [afonsojanu](https://github.com/afonsojanu))
+  - Finite inputs with magnitude >= 65536 previously overflowed the 5-bit exponent field into the sign and mantissa bits, silently encoding an unrelated finite value or a NaN (e.g. `100000.0f` encoded as NaN, `1e30f` as `-12.6172`). Such values now saturate to signed infinity, consistent with `INFINITY` inputs
+- ABI BREAKING: [Inline `cbor_incref` and `cbor_decref` fast paths](https://github.com/PJK/libcbor/pull/434)
+  - `cbor_incref` and `cbor_decref` are now `static inline` in `cbor/common.h`; the deallocation branch of `cbor_decref` moved into a new exported helper `_cbor_decref_free`. Source-compatible — same signatures and semantics — but the two symbols are no longer exported from the shared library, so binaries relying on their extern resolution (including `dlsym`) will fail to link against the new `.so`. Rebuilding against the updated headers is sufficient.
+
 0.14.0 (2026-04-07)
 ---------------------
 

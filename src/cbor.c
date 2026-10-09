@@ -47,7 +47,8 @@ cbor_item_t* cbor_load(cbor_data source, size_t source_size,
       .float2 = &cbor_builder_float2_callback,
       .float4 = &cbor_builder_float4_callback,
       .float8 = &cbor_builder_float8_callback,
-      .indef_break = &cbor_builder_indef_break_callback};
+      .indef_break = &cbor_builder_indef_break_callback,
+      .simple_value = &cbor_builder_simple_value_callback};
 
   if (source_size == 0) {
     result->error.code = CBOR_ERR_NODATA;
@@ -321,17 +322,26 @@ cbor_item_t* cbor_copy_definite(cbor_item_t* item) {
           total_length += chunk_length;
         }
 
-        unsigned char* combined_data = _cbor_malloc(total_length);
-        if (combined_data == NULL) {
-          return NULL;
+        // malloc(0) may legitimately return NULL, so do not allocate when
+        // the chunks are all empty; the handle will be NULL.
+        unsigned char* combined_data = NULL;
+        if (total_length > 0) {
+          combined_data = _cbor_malloc(total_length);
+          if (combined_data == NULL) {
+            return NULL;
+          }
         }
 
         size_t offset = 0;
         for (size_t i = 0; i < cbor_bytestring_chunk_count(item); i++) {
           cbor_item_t* chunk = cbor_bytestring_chunks_handle(item)[i];
-          memcpy(combined_data + offset, cbor_bytestring_handle(chunk),
-                 cbor_bytestring_length(chunk));
-          offset += cbor_bytestring_length(chunk);
+          size_t chunk_length = cbor_bytestring_length(chunk);
+          // Empty chunks may have a NULL handle
+          if (chunk_length > 0) {
+            memcpy(combined_data + offset, cbor_bytestring_handle(chunk),
+                   chunk_length);
+          }
+          offset += chunk_length;
         }
 
         cbor_item_t* res = cbor_new_definite_bytestring();
@@ -356,17 +366,26 @@ cbor_item_t* cbor_copy_definite(cbor_item_t* item) {
           total_length += chunk_length;
         }
 
-        unsigned char* combined_data = _cbor_malloc(total_length);
-        if (combined_data == NULL) {
-          return NULL;
+        // malloc(0) may legitimately return NULL, so do not allocate when
+        // the chunks are all empty; the handle will be NULL.
+        unsigned char* combined_data = NULL;
+        if (total_length > 0) {
+          combined_data = _cbor_malloc(total_length);
+          if (combined_data == NULL) {
+            return NULL;
+          }
         }
 
         size_t offset = 0;
         for (size_t i = 0; i < cbor_string_chunk_count(item); i++) {
           cbor_item_t* chunk = cbor_string_chunks_handle(item)[i];
-          memcpy(combined_data + offset, cbor_string_handle(chunk),
-                 cbor_string_length(chunk));
-          offset += cbor_string_length(chunk);
+          size_t chunk_length = cbor_string_length(chunk);
+          // Empty chunks may have a NULL handle
+          if (chunk_length > 0) {
+            memcpy(combined_data + offset, cbor_string_handle(chunk),
+                   chunk_length);
+          }
+          offset += chunk_length;
         }
 
         cbor_item_t* res = cbor_new_definite_string();
@@ -515,8 +534,11 @@ static void _cbor_nested_describe(cbor_item_t* item, FILE* out, int indent) {
         fprintf(out, "%*s", indent + indent_offset, " ");
         // Note: The string is not escaped, whitespace and control character
         // will be printed in verbatim and take effect.
-        fwrite(cbor_string_handle(item), sizeof(unsigned char),
-               cbor_string_length(item), out);
+        // Empty strings may have a NULL handle
+        if (cbor_string_length(item) > 0) {
+          fwrite(cbor_string_handle(item), sizeof(unsigned char),
+                 cbor_string_length(item), out);
+        }
         fprintf(out, "\n");
       }
       break;

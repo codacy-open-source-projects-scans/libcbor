@@ -29,6 +29,36 @@ static void test_undef(void** _state _CBOR_UNUSED) {
   assert_memory_equal(buffer, ((unsigned char[]){0xF7}), 1);
 }
 
+static void test_simple_values(void** _state _CBOR_UNUSED) {
+  // 0..23 use the one-byte encoding
+  assert_size_equal(1, cbor_encode_ctrl(0, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xE0}), 1);
+  assert_size_equal(1, cbor_encode_ctrl(19, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF3}), 1);
+  assert_size_equal(1, cbor_encode_ctrl(20, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF4}), 1);
+  assert_size_equal(1, cbor_encode_ctrl(23, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF7}), 1);
+
+  // 32..255 use the two-byte encoding
+  assert_size_equal(2, cbor_encode_ctrl(32, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF8, 0x20}), 2);
+  assert_size_equal(2, cbor_encode_ctrl(255, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF8, 0xFF}), 2);
+
+  // 24..31 are reserved by RFC 8949 and have no well-formed encoding. The
+  // encoder does not reject them; this pins the current (ill-formed) output
+  // so that any change is deliberate.
+  assert_size_equal(2, cbor_encode_ctrl(24, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF8, 0x18}), 2);
+  assert_size_equal(2, cbor_encode_ctrl(31, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF8, 0x1F}), 2);
+
+  // Insufficient buffer
+  assert_size_equal(0, cbor_encode_ctrl(0, buffer, 0));
+  assert_size_equal(0, cbor_encode_ctrl(32, buffer, 1));
+}
+
 static void test_break(void** _state _CBOR_UNUSED) {
   assert_size_equal(1, cbor_encode_break(buffer, 512));
   assert_memory_equal(buffer, ((unsigned char[]){0xFF}), 1);
@@ -180,18 +210,117 @@ static void test_half_infinity(void** _state _CBOR_UNUSED) {
   assert_half_float_codec_identity();
 }
 
+/* Finite values whose magnitude is too large for half precision (the
+ * largest finite half is 65504) must saturate to +-Infinity rather than
+ * producing a wrong finite value or a NaN. Before this test was added,
+ * cbor_encode_half computed an exponent field wider than the 5 bits half
+ * precision has room for, so the extra bits bled into the sign bit and
+ * mantissa, silently corrupting the result instead of raising it to
+ * infinity. */
+static void test_half_overflow_to_infinity(void** _state _CBOR_UNUSED) {
+  /* The normal-number path truncates the significand, so anything in
+   * [65504, 65536) still encodes as the largest finite half. 65536 is the
+   * first value whose exponent no longer fits. */
+  assert_size_equal(3, cbor_encode_half(65535.0f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0x7B, 0xFF}), 3);
+  assert_half_float_codec_identity();
+
+  assert_size_equal(3, cbor_encode_half(65536.0f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0x7C, 0x00}), 3);
+  assert_half_float_codec_identity();
+
+  assert_size_equal(3, cbor_encode_half(-65536.0f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0xFC, 0x00}), 3);
+  assert_half_float_codec_identity();
+
+  assert_size_equal(3, cbor_encode_half(70000.0f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0x7C, 0x00}), 3);
+  assert_half_float_codec_identity();
+
+  assert_size_equal(3, cbor_encode_half(-70000.0f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0xFC, 0x00}), 3);
+  assert_half_float_codec_identity();
+
+  assert_size_equal(3, cbor_encode_half(100000.0f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0x7C, 0x00}), 3);
+  assert_half_float_codec_identity();
+
+  assert_size_equal(3, cbor_encode_half(-100000.0f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0xFC, 0x00}), 3);
+  assert_half_float_codec_identity();
+
+  /* The largest finite single-precision float. */
+  assert_size_equal(3, cbor_encode_half(3.4028234663852886e+38f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0x7C, 0x00}), 3);
+  assert_half_float_codec_identity();
+
+  assert_size_equal(3, cbor_encode_half(-3.4028234663852886e+38f, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xF9, 0xFC, 0x00}), 3);
+  assert_half_float_codec_identity();
+}
+
+/* Check that buffer holds a single-precision CBOR NaN with the given sign
+ * bit (0x80 or 0x00), then verify that decoding and encoding it again
+ * reproduces the bytes. The payload bits are not checked because the C NAN
+ * constant has platform-specific bit patterns (e.g. MIPS legacy NaN). */
+static void assert_single_nan_and_roundtrip(unsigned char sign_bit) {
+  assert_int_equal(buffer[0], 0xFA);
+  assert_int_equal(buffer[1] & 0x80, sign_bit);
+
+  struct cbor_load_result res;
+  cbor_item_t* item = cbor_load(buffer, 5, &res);
+  assert_non_null(item);
+  assert_true(cbor_float_get_width(item) == CBOR_FLOAT_32);
+  assert_true(isnan(cbor_float_get_float4(item)));
+
+  unsigned char secondary_buffer[5];
+  assert_size_equal(
+      5, cbor_encode_single(cbor_float_get_float4(item), secondary_buffer, 5));
+  assert_memory_equal(buffer, secondary_buffer, 5);
+  cbor_decref(&item);
+}
+
+static void assert_double_nan_and_roundtrip(unsigned char sign_bit) {
+  assert_int_equal(buffer[0], 0xFB);
+  assert_int_equal(buffer[1] & 0x80, sign_bit);
+
+  struct cbor_load_result res;
+  cbor_item_t* item = cbor_load(buffer, 9, &res);
+  assert_non_null(item);
+  assert_true(cbor_float_get_width(item) == CBOR_FLOAT_64);
+  assert_true(isnan(cbor_float_get_float8(item)));
+
+  unsigned char secondary_buffer[9];
+  assert_size_equal(
+      9, cbor_encode_double(cbor_float_get_float8(item), secondary_buffer, 9));
+  assert_memory_equal(buffer, secondary_buffer, 9);
+  cbor_decref(&item);
+}
+
 static void test_float(void** _state _CBOR_UNUSED) {
   assert_size_equal(5, cbor_encode_single(3.4028234663852886e+38, buffer, 512));
   assert_memory_equal(buffer, ((unsigned char[]){0xFA, 0x7F, 0x7F, 0xFF, 0xFF}),
                       5);
 
   assert_size_equal(5, cbor_encode_single(NAN, buffer, 512));
-  assert_memory_equal(buffer, ((unsigned char[]){0xFA, 0x7F, 0xC0, 0x00, 0x00}),
-                      5);
+  assert_single_nan_and_roundtrip(0x00);
 
   assert_size_equal(5, cbor_encode_single(nanf("3"), buffer, 512));
-  assert_memory_equal(buffer, ((unsigned char[]){0xFA, 0x7F, 0xC0, 0x00, 0x00}),
+  assert_single_nan_and_roundtrip(0x00);
+
+  assert_size_equal(5, cbor_encode_single(-NAN, buffer, 512));
+  assert_single_nan_and_roundtrip(0x80);
+
+  /* Quiet NaN with a payload: bit 22 (quiet) plus payload bits. Built from
+   * a bit pattern rather than a C NaN constant for deterministic results
+   * across platforms. */
+  float nan_with_payload;
+  uint32_t nan_bits = 0xFFC12345u;
+  memcpy(&nan_with_payload, &nan_bits, sizeof(nan_with_payload));
+  assert_size_equal(5, cbor_encode_single(nan_with_payload, buffer, 512));
+  assert_memory_equal(buffer, ((unsigned char[]){0xFA, 0xFF, 0xC1, 0x23, 0x45}),
                       5);
+  assert_single_nan_and_roundtrip(0x80);
 
   assert_size_equal(5, cbor_encode_single(strtof("Inf", NULL), buffer, 512));
   assert_memory_equal(buffer, ((unsigned char[]){0xFA, 0x7F, 0x80, 0x00, 0x00}),
@@ -210,16 +339,26 @@ static void test_double(void** _state _CBOR_UNUSED) {
       9);
 
   assert_size_equal(9, cbor_encode_double(nan(""), buffer, 512));
-  assert_memory_equal(
-      buffer,
-      ((unsigned char[]){0xFB, 0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}),
-      9);
+  assert_double_nan_and_roundtrip(0x00);
 
   assert_size_equal(9, cbor_encode_double(nan("3"), buffer, 512));
+  assert_double_nan_and_roundtrip(0x00);
+
+  assert_size_equal(9, cbor_encode_double(-nan(""), buffer, 512));
+  assert_double_nan_and_roundtrip(0x80);
+
+  /* Quiet NaN with a payload: bit 51 (quiet) plus payload bits. Built from
+   * a bit pattern rather than a C NaN constant for deterministic results
+   * across platforms. */
+  double nan_with_payload;
+  uint64_t nan_bits = 0xFFF8123456789ABCull;
+  memcpy(&nan_with_payload, &nan_bits, sizeof(nan_with_payload));
+  assert_size_equal(9, cbor_encode_double(nan_with_payload, buffer, 512));
   assert_memory_equal(
       buffer,
-      ((unsigned char[]){0xFB, 0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}),
+      ((unsigned char[]){0xFB, 0xFF, 0xF8, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC}),
       9);
+  assert_double_nan_and_roundtrip(0x80);
 
   assert_size_equal(9, cbor_encode_double(strtod("Inf", NULL), buffer, 512));
   assert_memory_equal(
@@ -236,11 +375,17 @@ static void test_double(void** _state _CBOR_UNUSED) {
 
 int main(void) {
   const struct CMUnitTest tests[] = {
-      cmocka_unit_test(test_bools),         cmocka_unit_test(test_null),
-      cmocka_unit_test(test_undef),         cmocka_unit_test(test_break),
-      cmocka_unit_test(test_half),          cmocka_unit_test(test_float),
-      cmocka_unit_test(test_double),        cmocka_unit_test(test_half_special),
+      cmocka_unit_test(test_bools),
+      cmocka_unit_test(test_null),
+      cmocka_unit_test(test_undef),
+      cmocka_unit_test(test_simple_values),
+      cmocka_unit_test(test_break),
+      cmocka_unit_test(test_half),
+      cmocka_unit_test(test_float),
+      cmocka_unit_test(test_double),
+      cmocka_unit_test(test_half_special),
       cmocka_unit_test(test_half_infinity),
+      cmocka_unit_test(test_half_overflow_to_infinity),
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 }
